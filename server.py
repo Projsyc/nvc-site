@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import email.utils
+import gzip
+import hashlib
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -14,14 +18,26 @@ import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+try:
+    import brotli
+except ImportError:
+    brotli = None
 
 ROOT = Path(__file__).resolve().parent
 UA = "nvc-probe/1.0"
 CACHE_TTL = 60.0
 HTTP_TIMEOUT = 1.8
 DENY_SUFFIXES = {".py", ".pyc", ".pyo", ".service", ".sh"}
+COMPRESSIBLE_SUFFIXES = {".html", ".css", ".js", ".mjs", ".json", ".svg", ".txt", ".xml", ".map"}
+COMPRESS_MIN_BYTES = 256
+CACHE_API = "no-store"
+CACHE_REVALIDATE = "public, max-age=0, must-revalidate"
+CACHE_IMMUTABLE = "public, max-age=31536000, immutable"
+_QUOTED_ASSET = re.compile(r'(["\'])((?:\./)?(?:css|js|assets|data)/[^"\'?#]+)')
 
 HTTP_CHECKS = (
     ("new-api", "http://127.0.0.1:3000/", "public"),
@@ -47,6 +63,186 @@ _cache = {"ts": 0.0, "payload": None}
 _lock = threading.Lock()
 _cpu_lock = threading.Lock()
 _cpu_sample: tuple[int, int] | None = None
+# cache key -> (body, content_encoding|None, mtime, etag)
+_compress_cache: dict[tuple, tuple[bytes, str | None, float, str]] = {}
+_compress_lock = threading.Lock()
+_rev_cache: dict[tuple[str, int, int], str] = {}
+_rev_lock = threading.Lock()
+
+
+def _accepted_encodings(header: str) -> set[str]:
+    accepted: set[str] = set()
+    if not header:
+        return accepted
+    for item in header.split(","):
+        name, *params = item.split(";")
+        name = name.strip().lower()
+        q = 1.0
+        for param in params:
+            param = param.strip()
+            if param.startswith("q="):
+                try:
+                    q = float(param[2:].strip())
+                except ValueError:
+                    q = 0.0
+        if q > 0 and name:
+            accepted.add(name)
+    return accepted
+
+
+def _choose_encoding(accept_header: str) -> str | None:
+    """Prefer brotli when the optional package is present, else gzip."""
+    accepted = _accepted_encodings(accept_header)
+    wildcard = "*" in accepted
+    if brotli is not None and ("br" in accepted or wildcard):
+        return "br"
+    if "gzip" in accepted or "x-gzip" in accepted or wildcard:
+        return "gzip"
+    return None
+
+
+def _compress(data: bytes, encoding: str, *, gzip_level: int) -> bytes | None:
+    if encoding == "br" and brotli is not None:
+        out = brotli.compress(data, quality=5)
+    elif encoding == "gzip":
+        out = gzip.compress(data, compresslevel=gzip_level, mtime=0)
+    else:
+        return None
+    return out if len(out) < len(data) else None
+
+
+def _content_rev(path: Path, raw: bytes | None = None) -> str:
+    st = path.stat()
+    key = (str(path), st.st_mtime_ns, st.st_size)
+    with _rev_lock:
+        hit = _rev_cache.get(key)
+        if hit is not None:
+            return hit
+    digest = hashlib.sha256(raw if raw is not None else path.read_bytes()).hexdigest()[:12]
+    with _rev_lock:
+        stale = [k for k in _rev_cache if k[0] == str(path) and k != key]
+        for old in stale:
+            del _rev_cache[old]
+        _rev_cache[key] = digest
+    return digest
+
+
+def _with_version(rel: str) -> str:
+    prefix = ""
+    path_str = rel
+    if path_str.startswith("./"):
+        prefix = "./"
+        path_str = path_str[2:]
+    fs = ROOT.joinpath(*path_str.split("/"))
+    try:
+        resolved = fs.resolve()
+        resolved.relative_to(ROOT.resolve())
+    except (ValueError, OSError):
+        return rel
+    if not resolved.is_file():
+        return rel
+    try:
+        ver = _served_bytes(resolved)[1] if _should_rewrite(resolved) else _content_rev(resolved)
+    except OSError:
+        return rel
+    return f"{prefix}{path_str}?v={ver}"
+
+
+def _served_bytes(path: Path) -> tuple[bytes, str]:
+    raw = path.read_bytes()
+    if _should_rewrite(path):
+        rewritten = _rewrite_asset_urls(raw.decode("utf-8"))
+        raw = rewritten.encode("utf-8")
+    return raw, hashlib.sha256(raw).hexdigest()[:12]
+
+
+def _rewrite_asset_urls(text: str) -> str:
+    def repl(match: re.Match[str]) -> str:
+        return f"{match.group(1)}{_with_version(match.group(2))}"
+
+    return _QUOTED_ASSET.sub(repl, text)
+
+
+def _should_rewrite(path: Path) -> bool:
+    suffix = path.suffix.lower()
+    if suffix in {".html", ".htm"}:
+        return True
+    if suffix != ".js":
+        return False
+    try:
+        rel = path.resolve().relative_to(ROOT.resolve())
+    except ValueError:
+        return False
+    return rel.parts[:2] != ("js", "lib")
+
+
+def _query_has_version(request_path: str) -> bool:
+    if "?" not in request_path:
+        return False
+    query = request_path.split("?", 1)[1]
+    for part in query.split("&"):
+        name, _, value = part.partition("=")
+        if name == "v" and value:
+            return True
+    return False
+
+
+def _file_cache_control(request_path: str, fs_path: Path) -> str:
+    if fs_path.suffix.lower() in {".html", ".htm"}:
+        return CACHE_REVALIDATE
+    if _query_has_version(request_path):
+        return CACHE_IMMUTABLE
+    return CACHE_REVALIDATE
+
+
+def _compress_memo(
+    raw: bytes,
+    encoding: str | None,
+    *,
+    gzip_level: int,
+    key: tuple,
+    mtime: float,
+    etag: str,
+) -> tuple[bytes, str | None, float, str]:
+    with _compress_lock:
+        hit = _compress_cache.get(key)
+        if hit is not None:
+            return hit
+    used: str | None = None
+    body = raw
+    if encoding and len(raw) >= COMPRESS_MIN_BYTES:
+        compressed = _compress(raw, encoding, gzip_level=gzip_level)
+        if compressed is not None:
+            body = compressed
+            used = encoding
+    result = (body, used, mtime, etag)
+    with _compress_lock:
+        path_key = key[0] if key else None
+        if isinstance(path_key, str) and not path_key.startswith("rw:"):
+            stale = [k for k in _compress_cache if k[0] == path_key and k != key]
+            for old in stale:
+                del _compress_cache[old]
+        _compress_cache[key] = result
+    return result
+
+
+def _static_body(path: Path, encoding: str | None) -> tuple[bytes, str | None, float, str]:
+    st = path.stat()
+    key = (str(path), st.st_mtime_ns, encoding or "identity")
+    with _compress_lock:
+        hit = _compress_cache.get(key)
+        if hit is not None:
+            return hit
+    raw = path.read_bytes()
+    etag = _content_rev(path, raw)
+    return _compress_memo(
+        raw,
+        encoding,
+        gzip_level=9,
+        key=key,
+        mtime=st.st_mtime,
+        etag=etag,
+    )
 
 
 def _run(cmd: list[str], timeout: float = 1.5) -> str:
@@ -592,28 +788,181 @@ class Handler(SimpleHTTPRequestHandler):
         sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
 
     def end_headers(self) -> None:
-        if self.path.split("?", 1)[0] == "/api/status":
-            self.send_header("Cache-Control", "no-store")
-        else:
-            self.send_header("Cache-Control", "public, max-age=60")
+        cache_control = getattr(self, "_cache_control", None)
+        if cache_control is None:
+            path = self.path.split("?", 1)[0]
+            cache_control = CACHE_API if path == "/api/status" else CACHE_REVALIDATE
+        self.send_header("Cache-Control", cache_control)
         super().end_headers()
 
-    def do_GET(self) -> None:
+    def _not_modified(self, mtime: float) -> bool:
+        header = self.headers.get("If-Modified-Since")
+        if not header:
+            return False
+        try:
+            ims = email.utils.parsedate_to_datetime(header)
+            if ims.tzinfo is None:
+                ims = ims.replace(tzinfo=timezone.utc)
+            file_time = datetime.fromtimestamp(int(mtime), tz=timezone.utc)
+            return ims >= file_time
+        except (TypeError, ValueError, OverflowError, OSError):
+            return False
+
+    def _etag_match(self, etag: str) -> bool:
+        header = self.headers.get("If-None-Match")
+        if not header:
+            return False
+        wanted = {etag, f'"{etag}"', f'W/"{etag}"'}
+        return any(part.strip() in wanted for part in header.split(","))
+
+    def _send_not_modified(self, *, etag: str | None, vary: bool) -> None:
+        self.send_response(304)
+        if etag:
+            self.send_header("ETag", f'"{etag}"')
+        if vary:
+            self.send_header("Vary", "Accept-Encoding")
+        self.end_headers()
+
+    def _send_bytes(
+        self,
+        body: bytes,
+        content_type: str,
+        *,
+        encoding: str | None = None,
+        mtime: float | None = None,
+        vary: bool = False,
+        cache_control: str,
+        etag: str | None = None,
+    ) -> None:
+        self._cache_control = cache_control
+        if etag and self._etag_match(etag):
+            self._send_not_modified(etag=etag, vary=vary or bool(encoding))
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        if vary or encoding:
+            self.send_header("Vary", "Accept-Encoding")
+        if encoding:
+            self.send_header("Content-Encoding", encoding)
+        if etag:
+            self.send_header("ETag", f'"{etag}"')
+        if mtime is not None:
+            self.send_header("Last-Modified", self.date_time_string(int(mtime)))
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+    def _send_api(self) -> None:
+        raw = json.dumps(cached_snapshot(), separators=(",", ":")).encode()
+        encoding = _choose_encoding(self.headers.get("Accept-Encoding", ""))
+        body = raw
+        used = None
+        if encoding and len(raw) >= COMPRESS_MIN_BYTES:
+            compressed = _compress(raw, encoding, gzip_level=4)
+            if compressed is not None:
+                body = compressed
+                used = encoding
+        self._send_bytes(
+            body,
+            "application/json; charset=utf-8",
+            encoding=used,
+            vary=True,
+            cache_control=CACHE_API,
+        )
+
+    def _send_rewritten(self, fs_path: Path, cache_control: str) -> None:
+        raw, etag = _served_bytes(fs_path)
+        self._cache_control = cache_control
+        if self._etag_match(etag):
+            self._send_not_modified(etag=etag, vary=True)
+            return
+        encoding = _choose_encoding(self.headers.get("Accept-Encoding", ""))
+        body, used, _, etag = _compress_memo(
+            raw,
+            encoding,
+            gzip_level=9,
+            key=("rw:" + etag, encoding or "identity"),
+            mtime=0.0,
+            etag=etag,
+        )
+        content_type = self.guess_type(str(fs_path))
+        if fs_path.suffix.lower() in {".html", ".htm"}:
+            content_type = "text/html; charset=utf-8"
+        self._send_bytes(
+            body,
+            content_type,
+            encoding=used,
+            vary=True,
+            cache_control=cache_control,
+            etag=etag,
+        )
+
+    def _send_static_compressed(self) -> bool:
+        url_path = self.path.split("?", 1)[0]
+        fs_path = Path(self.translate_path(url_path))
+        if fs_path.is_dir():
+            if not url_path.endswith("/"):
+                return False
+            index = fs_path / "index.html"
+            if not index.is_file():
+                return False
+            fs_path = index
+        elif not fs_path.is_file():
+            return False
+        suffix = fs_path.suffix.lower()
+        if suffix not in COMPRESSIBLE_SUFFIXES:
+            return False
+        cache_control = _file_cache_control(self.path, fs_path)
+        self._cache_control = cache_control
+        if _should_rewrite(fs_path):
+            try:
+                self._send_rewritten(fs_path, cache_control)
+            except OSError:
+                return False
+            return True
+        try:
+            mtime = fs_path.stat().st_mtime
+        except OSError:
+            return False
+        if not self.headers.get("If-None-Match") and self._not_modified(mtime):
+            self._send_not_modified(etag=None, vary=True)
+            return True
+        encoding = _choose_encoding(self.headers.get("Accept-Encoding", ""))
+        try:
+            body, used, mtime, etag = _static_body(fs_path, encoding)
+        except OSError:
+            return False
+        content_type = self.guess_type(str(fs_path))
+        self._send_bytes(
+            body,
+            content_type,
+            encoding=used,
+            mtime=mtime,
+            vary=True,
+            cache_control=cache_control,
+            etag=etag,
+        )
+        return True
+
+    def _dispatch(self) -> bool:
         path = self.path.split("?", 1)[0]
         if path == "/api/status":
-            body = json.dumps(cached_snapshot(), separators=(",", ":")).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-            return
+            self._send_api()
+            return True
         rel = path.lstrip("/") or "index.html"
-        suffix = Path(rel).suffix.lower()
-        if suffix in DENY_SUFFIXES:
+        if Path(rel).suffix.lower() in DENY_SUFFIXES:
             self.send_error(404, "Not found")
-            return
-        super().do_GET()
+            return True
+        return self._send_static_compressed()
+
+    def do_GET(self) -> None:
+        if not self._dispatch():
+            super().do_GET()
+
+    def do_HEAD(self) -> None:
+        if not self._dispatch():
+            super().do_HEAD()
 
 
 def main() -> int:

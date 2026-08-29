@@ -128,8 +128,10 @@ html {
     translate3d(0, calc(var(--globe-out) * 5vh), 0)
     scale(calc(1 - var(--globe-out) * 0.16));
 }
-.hero-orbit-wrap.is-away,
-.hero-orbit-wrap.is-past {
+.hero-orbit-wrap.is-away .hero-orbit,
+.hero-orbit-wrap.is-away .hero-orbit-hit,
+.hero-orbit-wrap.is-past .hero-orbit,
+.hero-orbit-wrap.is-past .hero-orbit-hit {
   pointer-events: none;
 }
 .hero-orbit-wrap.is-past {

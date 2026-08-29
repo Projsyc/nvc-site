@@ -951,6 +951,11 @@ function init() {
   const AUTO = 0.045;
   const SENS = 0.0055;
 
+  const hitEl = document.createElement("div");
+  hitEl.className = "hero-orbit-hit";
+  hitEl.setAttribute("aria-hidden", "true");
+  wrap.appendChild(hitEl);
+
   function pointerRay(clientX, clientY) {
     const r = canvas.getBoundingClientRect();
     pointerNdc.x = ((clientX - r.left) / r.width) * 2 - 1;
@@ -970,6 +975,9 @@ function init() {
     const vFov = THREE.MathUtils.degToRad(camera.fov);
     const fill = matchMedia("(min-width: 861px)").matches ? 1.0 : 0.86;
     camera.position.z = fill / (Math.tan(vFov / 2) * Math.min(1, camera.aspect));
+    const d = Math.min(w, h) / fill;
+    hitEl.style.width = `${d}px`;
+    hitEl.style.height = `${d}px`;
   }
 
   function paintNode(id, live) {
@@ -1016,8 +1024,23 @@ function init() {
     return hits[0] && hits[0].object.userData.id;
   }
 
+  function globeHit(clientX, clientY, nearest = false) {
+    return projectOnSphere(pointerRay(clientX, clientY), 1, nearest);
+  }
+
+  function onTouchStart(e) {
+    const t = e.changedTouches[0];
+    if (!t) return;
+    if (e.currentTarget === hitEl || globeHit(t.clientX, t.clientY)) e.preventDefault();
+  }
+
+  let captureEl = null;
+
   function onDown(e) {
     if (e.pointerType === "mouse" && e.button !== 0) return;
+    const onDisc = e.currentTarget === hitEl;
+    const hit = globeHit(e.clientX, e.clientY, true);
+    if (!onDisc && e.pointerType !== "mouse" && !globeHit(e.clientX, e.clientY, false)) return;
     dragging = true;
     moved = false;
     grabbing = false;
@@ -1028,14 +1051,14 @@ function init() {
     lastMoveT = performance.now();
     spinClear();
     anim = null;
-    const hit = projectOnSphere(pointerRay(e.clientX, e.clientY), 1, true);
     if (hit) {
       invRoot.copy(root.quaternion).invert();
       grabLocal.copy(hit).applyQuaternion(invRoot);
       grabbing = true;
     }
-    try { canvas.setPointerCapture(e.pointerId); } catch {}
-    e.preventDefault();
+    captureEl = e.currentTarget;
+    try { captureEl.setPointerCapture(e.pointerId); } catch {}
+    if (e.cancelable) e.preventDefault();
   }
 
   function onMove(e) {
@@ -1079,7 +1102,8 @@ function init() {
     dragging = false;
     grabbing = false;
     idleAt = performance.now() + 2400;
-    try { canvas.releasePointerCapture(e.pointerId); } catch {}
+    try { (captureEl || canvas).releasePointerCapture(e.pointerId); } catch {}
+    captureEl = null;
     if (!moved) {
       const id = pick(e.clientX, e.clientY);
       if (id) {
@@ -1089,11 +1113,20 @@ function init() {
     }
   }
 
-  canvas.addEventListener("pointerdown", onDown);
-  canvas.addEventListener("pointermove", onMove);
-  canvas.addEventListener("pointerup", onUp);
-  canvas.addEventListener("pointercancel", onUp);
+  function bindSpin(el) {
+    el.addEventListener("pointerdown", onDown);
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerup", onUp);
+    el.addEventListener("pointercancel", onUp);
+    el.addEventListener("touchstart", onTouchStart, { passive: false });
+    el.addEventListener("touchmove", (e) => {
+      if (dragging && e.cancelable) e.preventDefault();
+    }, { passive: false });
+  }
+  bindSpin(canvas);
+  bindSpin(hitEl);
   canvas.addEventListener("dblclick", () => focus("core"));
+  hitEl.addEventListener("dblclick", () => focus("core"));
 
   addEventListener("resize", size);
   const ro = new ResizeObserver(size);
