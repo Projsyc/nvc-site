@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>NVC.AC · Orbital Mesh</title>
+  <meta name="description" content="Core in Los Angeles. Edge nodes staged in Tokyo, Seoul, and Hong Kong. The nvc.ac orbital mesh." />
+  <meta name="theme-color" content="#05060c" />
+  <meta property="og:title" content="NVC.AC · Orbital Mesh" />
+  <meta property="og:description" content="Core in Los Angeles. Edge nodes staged in Tokyo, Seoul, and Hong Kong." />
+  <meta property="og:type" content="website" />
+  <meta property="og:locale" content="en_US" />
+  <script>
+    try {
+      var skipLoad = sessionStorage.getItem("nvc.mesh.ready") === "1"
+        || matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (!skipLoad) document.documentElement.classList.add("is-loading");
+      var hash = location.hash.replace(/^#/, "");
+      if (hash && hash !== "hero" && hash !== "mesh") document.documentElement.classList.add("is-scrolled");
+      if (matchMedia("(max-width: 860px), (max-height: 560px)").matches) {
+        document.documentElement.classList.add("telemetry-compact");
+      }
+    } catch (e) {}
+  </script>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&family=Instrument+Serif:ital@0;1&family=Syne:wght@600;700;800&display=swap" media="print" onload="this.media='all'" />
+  <noscript>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&family=Instrument+Serif:ital@0;1&family=Syne:wght@600;700;800&display=swap" />
+  </noscript>
+  <link rel="stylesheet" href="css/site.css" />
+  <link rel="stylesheet" href="css/deck.css" />
+  <link rel="modulepreload" href="js/lib/three.module.min.js" />
+  <link rel="modulepreload" href="js/globe.js" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./js/lib/three.module.min.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <a class="skip" href="#hero">Skip to main content</a>
+
+  <div class="fx" aria-hidden="true">
+    <div class="vignette"></div>
+    <div class="ascii-stack" id="asciiStack">
+      <canvas class="ascii-field is-far" id="asciiFar"></canvas>
+      <canvas class="ascii-field is-near" id="asciiNear"></canvas>
+    </div>
+    <div class="grain"></div>
+  </div>
+
+  <header class="nav glass" id="nav">
+    <a class="nav-brand" href="#hero" data-magnetic>
+      <span class="nav-atom" aria-hidden="true"></span>
+      NVC.AC
+    </a>
+    <nav class="nav-links">
+      <a href="#telemetry">Telemetry</a>
+      <a href="#stack">Nodes</a>
+      <!-- <a href="#projects">Projects</a>
+      <a href="#operator">Operator</a> -->
+    </nav>
+    <div class="nav-clocks" aria-hidden="true">
+      <span data-clock="UTC" data-tz="UTC">UTC --:--:--</span>
+      <span data-clock="LAX" data-tz="America/Los_Angeles">LAX --:--:--</span>
+    </div>
+  </header>
+
+  <nav class="pager" id="pager" aria-label="Sections">
+    <a href="#hero" aria-label="Orbit"><i></i></a>
+    <a href="#telemetry" aria-label="Telemetry"><i></i></a>
+    <a href="#stack" aria-label="Nodes"><i></i></a>
+  </nav>
+
+  <main class="deck" id="deck">
+    <div class="wipe" id="wipe" aria-hidden="true">
+      <span class="wipe-veil"></span>
+      <span class="wipe-fog"></span>
+      <span class="wipe-rule"></span>
+    </div>
+    <section class="hero slide" id="hero">
+      <h1 class="sr-only">NVC.AC orbital mesh</h1>
+      <div class="hero-orbit-wrap" id="orbitWrap">
+        <canvas id="orbit" class="hero-orbit" aria-label="Pacific orbital mesh. Drag to spin the globe. Four nodes: Los Angeles, Tokyo, Seoul, Hong Kong."></canvas>
+        <div class="hero-fallback" aria-hidden="true">
+          <span class="hero-fallback-ring"></span>
+          <span class="hero-fallback-ring r2"></span>
+          <span class="hero-fallback-core"></span>
+        </div>
+      </div>
+      <aside class="orbit-inspect" id="orbitInspect" aria-hidden="true">
+        <p class="panel-k">NODE</p>
+        <h3 id="panelTitle">CORE · LOS ANGELES</h3>
+        <p id="panelCopy">Origin compute. Ubuntu + Docker. Public 443 is nginx stream by SNI; HTTP sites egress through a Cloudflare tunnel.</p>
+        <ul class="panel-facts" id="panelFacts"></ul>
+      </aside>
+      <div class="hero-status" id="heroStatus">
+        <button type="button" data-orbit-node="core" aria-label="Los Angeles core">
+          <i class="led wait" id="meshLed"></i>
+          <b>LAX</b>
+        </button>
+        <button type="button" data-orbit-node="tokyo" aria-label="Tokyo edge">
+          <i class="led wait"></i>
+          <b>TYO</b>
+        </button>
+        <button type="button" data-orbit-node="seoul" aria-label="Seoul edge">
+          <i class="led wait"></i>
+          <b>SEL</b>
+        </button>
+        <button type="button" data-orbit-node="hongkong" aria-label="Hong Kong edge">
+          <i class="led wait"></i>
+          <b>HKG</b>
+        </button>
+      </div>
+      <span id="uptime" class="sr-only">UP --d --h</span>
+      <span id="meshSys" class="sr-only"></span>
+      <span id="meshCount" class="sr-only"></span>
+      <span id="probeMeta" class="sr-only"></span>
+      <span id="statMesh" class="sr-only"></span>
+      <span id="statCore" class="sr-only"></span>
+      <span id="statEdge" class="sr-only"></span>
+      <span id="statPath" class="sr-only"></span>
+    </section>
+
+    <div class="drawer" id="drawer">
+      <section class="telemetry slide" id="telemetry">
+      <header class="sec-head sr-only">
+        <p class="sec-idx">Telemetry</p>
+        <h2>Core</h2>
+      </header>
+
+      <div class="telemetry-console" id="telemetryConsole">
+        <div class="telemetry-split">
+          <div
+            class="telemetry-wheel"
+            id="telemetryWheel"
+            tabindex="0"
+            role="listbox"
+            aria-label="Host sensors"
+            aria-orientation="vertical"
+          >
+            <p class="sr-only">Scroll, swipe, or drag to switch sensors.</p>
+            <div class="telemetry-wheel-list" id="telemetryWheelList">
+              <button type="button" class="telemetry-wheel-item" role="option" data-channel="cpu" aria-selected="true">
+                <span class="wheel-ch">01</span>
+                <span class="wheel-name">CPU</span>
+              </button>
+              <button type="button" class="telemetry-wheel-item" role="option" data-channel="gpu" aria-selected="false">
+                <span class="wheel-ch">02</span>
+                <span class="wheel-name">GPU</span>
+              </button>
+              <button type="button" class="telemetry-wheel-item" role="option" data-channel="mem" aria-selected="false">
+                <span class="wheel-ch">03</span>
+                <span class="wheel-name">Mem</span>
+              </button>
+              <button type="button" class="telemetry-wheel-item" role="option" data-channel="disk" aria-selected="false">
+                <span class="wheel-ch">04</span>
+                <span class="wheel-name">Disk</span>
+              </button>
+              <button type="button" class="telemetry-wheel-item" role="option" data-channel="temp" aria-selected="false">
+                <span class="wheel-ch">05</span>
+                <span class="wheel-name">Temp</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="telemetry-stage">
+            <header class="telemetry-topline">
+              <div class="telemetry-link">
+                <span class="led wait" id="telemetryLed"></span>
+                <div>
+                  <strong id="telemetryState" aria-live="polite">ACQUIRING SIGNAL</strong>
+                  <span>CORE.LAX / HOST SENSOR BUS</span>
+                </div>
+              </div>
+              <div class="telemetry-stamps">
+                <div class="telemetry-stamp">
+                  <span>LAST SAMPLE</span>
+                  <time id="telemetrySample">--:--:--</time>
+                </div>
+                <div class="telemetry-stamp">
+                  <span>PATH</span>
+                  <b id="telemetryProbe">--</b>
+                </div>
+              </div>
+            </header>
+
+            <div class="telemetry-panes" id="telemetryPanes">
+            <article class="metric metric-cpu is-active" data-channel="cpu">
+              <header class="metric-head">
+                <p><span>CH.01</span> CPU UTILIZATION</p>
+                <b id="cpuSignal">SAMPLING</b>
+              </header>
+              <div class="metric-value">
+                <strong id="cpuValue">--.-</strong><i>%</i>
+              </div>
+              <div class="trace-box trace-large">
+                <svg viewBox="0 0 240 72" preserveAspectRatio="none" aria-hidden="true">
+                  <path class="trace-grid" d="M0 18H240M0 36H240M0 54H240M60 0V72M120 0V72M180 0V72" />
+                  <path class="trace-area" id="cpuArea" d="" />
+                  <path class="trace-line" id="cpuTrace" d="" />
+                </svg>
+                <span>12 MIN</span><b>NOW</b>
+              </div>
+              <div class="metric-meter" id="cpuMeter" role="progressbar" aria-label="CPU utilization" aria-valuemin="0" aria-valuemax="100">
+                <i id="cpuFill"></i>
+              </div>
+              <div class="metric-detail">
+                <span>LOGICAL CORES <b id="cpuCores">--</b></span>
+                <span>1M LOAD <b id="cpuLoad">--</b></span>
+              </div>
+            </article>
+
+            <article class="metric metric-gpu" data-channel="gpu">
+              <header class="metric-head">
+                <p><span>CH.02</span> GPU UTILIZATION</p>
+                <b id="gpuSignal">SENSOR</b>
+              </header>
+              <div class="metric-value">
+                <strong id="gpuValue">--.-</strong><i id="gpuUnit">%</i>
+              </div>
+              <div class="trace-box trace-large">
+                <svg viewBox="0 0 240 72" preserveAspectRatio="none" aria-hidden="true">
+                  <path class="trace-grid" d="M0 18H240M0 36H240M0 54H240M60 0V72M120 0V72M180 0V72" />
+                  <path class="trace-area" id="gpuArea" d="" />
+                  <path class="trace-line" id="gpuTrace" d="" />
+                </svg>
+                <span>12 MIN</span><b>NOW</b>
+              </div>
+              <div class="metric-meter" id="gpuMeter" role="progressbar" aria-label="GPU utilization" aria-valuemin="0" aria-valuemax="100">
+                <i id="gpuFill"></i>
+              </div>
+              <p class="metric-caption"><span id="gpuUsed">--</span> VRAM / <span id="gpuTotal">--</span> TOTAL</p>
+              <p class="metric-caption" id="gpuName">AWAITING DEVICE</p>
+              <p class="thermal-note" id="gpuNote">GPU stats appear only when a driver exposes the device.</p>
+            </article>
+
+            <article class="metric metric-memory" data-channel="mem">
+              <header class="metric-head">
+                <p><span>CH.03</span> MEMORY</p>
+                <b>RAM</b>
+              </header>
+              <div class="metric-value">
+                <strong id="memValue">--.-</strong><i>%</i>
+              </div>
+              <div class="trace-box trace-large">
+                <svg viewBox="0 0 240 72" preserveAspectRatio="none" aria-hidden="true">
+                  <path class="trace-grid" d="M0 18H240M0 36H240M0 54H240M60 0V72M120 0V72M180 0V72" />
+                  <path class="trace-area" id="memArea" d="" />
+                  <path class="trace-line" id="memTrace" d="" />
+                </svg>
+                <span>12 MIN</span><b>NOW</b>
+              </div>
+              <div class="metric-meter" id="memMeter" role="progressbar" aria-label="Memory utilization" aria-valuemin="0" aria-valuemax="100">
+                <i id="memFill"></i>
+              </div>
+              <p class="metric-caption"><span id="memUsed">--</span> USED / <span id="memTotal">--</span> TOTAL</p>
+            </article>
+
+            <article class="metric metric-disk" data-channel="disk">
+              <header class="metric-head">
+                <p><span>CH.04</span> ROOT VOLUME</p>
+                <b>/</b>
+              </header>
+              <div class="metric-value">
+                <strong id="diskValue">--.-</strong><i>%</i>
+              </div>
+              <div class="trace-box trace-large">
+                <svg viewBox="0 0 240 72" preserveAspectRatio="none" aria-hidden="true">
+                  <path class="trace-grid" d="M0 18H240M0 36H240M0 54H240M60 0V72M120 0V72M180 0V72" />
+                  <path class="trace-area" id="diskArea" d="" />
+                  <path class="trace-line" id="diskTrace" d="" />
+                </svg>
+                <span>12 MIN</span><b>NOW</b>
+              </div>
+              <div class="metric-meter" id="diskMeter" role="progressbar" aria-label="Disk utilization" aria-valuemin="0" aria-valuemax="100">
+                <i id="diskFill"></i>
+              </div>
+              <p class="metric-caption"><span id="diskUsed">--</span> USED / <span id="diskTotal">--</span> TOTAL</p>
+            </article>
+
+            <article class="metric metric-temperature" data-channel="temp">
+              <header class="metric-head">
+                <p><span>CH.05</span> THERMAL</p>
+                <b id="tempSignal">SENSOR</b>
+              </header>
+              <div class="metric-value">
+                <strong id="tempValue">--.-</strong><i id="tempUnit">°C</i>
+              </div>
+              <div class="trace-box trace-large">
+                <svg viewBox="0 0 240 72" preserveAspectRatio="none" aria-hidden="true">
+                  <path class="trace-grid" d="M0 18H240M0 36H240M0 54H240M60 0V72M120 0V72M180 0V72" />
+                  <path class="trace-area" id="tempArea" d="" />
+                  <path class="trace-line" id="tempTrace" d="" />
+                </svg>
+                <span>12 MIN</span><b>NOW</b>
+              </div>
+              <p class="metric-caption" id="tempSensor">AWAITING KERNEL SENSOR</p>
+              <p class="thermal-note" id="tempNote">Thermals appear only when the host kernel exposes a sensor.</p>
+            </article>
+          </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="stack slide" id="stack">
+      <header class="sec-head">
+        <p class="sec-idx">Nodes</p>
+        <h2>Services</h2>
+      </header>
+
+      <div class="svc-stage">
+        <div class="svc-rail" id="svcRail" tabindex="0" role="region" aria-roledescription="carousel" aria-label="Services">
+          <div class="cards">
+            <a class="card glass tilt" draggable="false" data-probe="new-api" href="https://api.nvc.ac" target="_blank" rel="noopener">
+              <div class="card-top">
+                <span class="ascii-ico" aria-hidden="true">⟨λ⟩</span>
+                <p class="mono">api.nvc.ac <span class="probe-ms" data-probe-ms></span></p>
+                <span class="pill wait">PROBE</span>
+              </div>
+              <span class="card-go">↗</span>
+              <h3>New API</h3>
+            </a>
+
+            <a class="card glass tilt" draggable="false" data-probe="docs-agent" href="https://docs-agent.nvc.ac/healthz" target="_blank" rel="noopener">
+              <div class="card-top">
+                <span class="ascii-ico" aria-hidden="true">⌘?</span>
+                <p class="mono">docs-agent.nvc.ac <span class="probe-ms" data-probe-ms></span></p>
+                <span class="pill wait">PROBE</span>
+              </div>
+              <span class="card-go">↗</span>
+              <h3>Docs Agent</h3>
+            </a>
+
+            <a class="card glass tilt" draggable="false" data-probe="umami" href="https://umami.nvc.ac" target="_blank" rel="noopener">
+              <div class="card-top">
+                <span class="ascii-ico" aria-hidden="true">▣▣</span>
+                <p class="mono">umami.nvc.ac <span class="probe-ms" data-probe-ms></span></p>
+                <span class="pill wait">PROBE</span>
+              </div>
+              <span class="card-go">↗</span>
+              <h3>Umami</h3>
+            </a>
+
+            <a class="card glass tilt" draggable="false" data-probe="aipm" href="https://aipm.ac" target="_blank" rel="noopener">
+              <div class="card-top">
+                <span class="ascii-ico" aria-hidden="true">☰/</span>
+                <p class="mono">aipm.ac <span class="probe-ms" data-probe-ms></span></p>
+                <span class="pill wait">PROBE</span>
+              </div>
+              <span class="card-go">↗</span>
+              <h3>AI-PM Wiki</h3>
+            </a>
+
+            <article class="card glass tilt private" data-probe="mesh-node">
+              <div class="card-top">
+                <span class="ascii-ico" aria-hidden="true">⚡≡</span>
+                <p class="mono">vpn.nvc.ac</p>
+                <span class="pill private">PRIVATE</span>
+              </div>
+              <h3>Mesh Node</h3>
+            </article>
+
+            <article class="card glass tilt private" data-probe="mail">
+              <div class="card-top">
+                <span class="ascii-ico" aria-hidden="true">@→</span>
+                <p class="mono">mail.nvc.ac</p>
+                <span class="pill private">PRIVATE</span>
+              </div>
+              <h3>Mail</h3>
+            </article>
+
+            <article class="card glass tilt planned" data-probe="apac">
+              <div class="card-top">
+                <span class="ascii-ico" aria-hidden="true">◈◇</span>
+                <p class="mono">TYO · SEL · HKG</p>
+                <span class="pill wait">STANDBY</span>
+              </div>
+              <h3>APAC Edge</h3>
+            </article>
+
+            <article class="card glass tilt private" data-probe="cliproxy">
+              <div class="card-top">
+                <span class="ascii-ico" aria-hidden="true">{/}</span>
+                <p class="mono">127.0.0.1</p>
+                <span class="pill private">LOOPBACK</span>
+              </div>
+              <h3>CLI Proxy</h3>
+            </article>
+          </div>
+        </div>
+        <div class="svc-meter" aria-hidden="true"><i id="svcMeterThumb"></i></div>
+      </div>
+    </section>
+
+    <!--
+    <section class="projects slide" id="projects">
+      <header class="sec-head">
+        <p class="sec-idx">04 / PROJECTS</p>
+        <h2>What the operator is building</h2>
+        <p class="sec-lead">The mesh is the substrate. Maps, notes, knowledge, and agents run on top.</p>
+      </header>
+      <div class="proj-list">
+        <a class="proj glass tilt" href="https://aipm.ac" target="_blank" rel="noopener">
+          <span class="proj-no">01</span>
+          <div>
+            <h3>AI-PM Wiki</h3>
+            <p>A knowledge base for AI product management — methods, prompts, agents, evals, and cases.</p>
+          </div>
+          <span class="proj-tag">aipm.ac</span>
+        </a>
+        <a class="proj glass tilt" href="https://github.com/HuangYincan/JobMap" target="_blank" rel="noopener">
+          <span class="proj-no">02</span>
+          <div>
+            <h3>JobMap</h3>
+            <p>A plug-in domain map. Spatial analysis, LLM recommendations, and natural-language map ops.</p>
+          </div>
+          <span class="proj-tag">GitHub</span>
+        </a>
+        <a class="proj glass tilt" href="https://github.com/HuangYincan/VideoNote-MCP" target="_blank" rel="noopener">
+          <span class="proj-no">03</span>
+          <div>
+            <h3>VideoNote-MCP</h3>
+            <p>Video links into structured notes. Transcript, frames, danmaku, and a summary in one chain.</p>
+          </div>
+          <span class="proj-tag">MCP</span>
+        </a>
+      </div>
+    </section>
+
+    <section class="operator slide" id="operator">
+      <header class="sec-head">
+        <p class="sec-idx">05 / OPERATOR</p>
+        <h2>Huang Yincan <em>/ 黄寅灿</em></h2>
+        <p class="sec-lead">
+          GIS at Zhejiang University. Space, product, and models on one map.
+          This West-coast core is the origin of the mesh.
+        </p>
+      </header>
+      <div class="op-grid">
+        <div class="op-card glass">
+          <p class="stat-k">CALLSIGN</p>
+          <p class="op-big">NVC</p>
+          <p>nvc.ac · the public name of the orbital mesh.</p>
+        </div>
+        <div class="op-card glass">
+          <p class="stat-k">STACK</p>
+          <ul class="chips">
+            <li>Ubuntu</li><li>Docker</li><li>nginx stream</li>
+            <li>Cloudflare</li><li>New API</li><li>Umami</li>
+          </ul>
+        </div>
+        <div class="op-card glass">
+          <p class="stat-k">LINKS</p>
+          <div class="op-links">
+            <a href="https://github.com/HuangYincan/" target="_blank" rel="noopener">GitHub ↗</a>
+            <a href="https://aipm.ac" target="_blank" rel="noopener">aipm.ac ↗</a>
+            <a href="mailto:admin@nvc.ac">admin@nvc.ac</a>
+          </div>
+        </div>
+      </div>
+    </section>
+    -->
+    </div>
+  </main>
+
+  <footer class="site-foot">
+    <p id="footTerm">© 2026 NVC.AC</p>
+  </footer>
+
+  <section class="brand-reveal" id="brandReveal" aria-label="NVC.AC">
+    <div class="brand-reveal-fixed" id="brandRevealFixed">
+      <div class="brand-reveal-stage" id="brandRevealStage">
+        <div class="brand-reveal-static" id="brandRevealStatic" aria-hidden="true">
+          <span class="brand-reveal-word">NVC.AC</span>
+        </div>
+        <canvas class="brand-reveal-canvas" id="brandRevealCanvas" aria-hidden="true"></canvas>
+      </div>
+      <h2 class="sr-only">NVC.AC</h2>
+    </div>
+  </section>
+
+  <script src="js/ascii.js"></script>
+  <script src="js/site.js"></script>
+  <script src="js/deck.js"></script>
+  <script type="module" src="js/globe.js"></script>
+</body>
+</html>
