@@ -243,7 +243,6 @@ html.is-scrolling .hero-orbit-wrap {
   overflow-y: hidden;
   scroll-snap-type: x mandatory;
   scrollbar-width: none;
-  cursor: grab;
   user-select: none;
   -webkit-user-select: none;
   -webkit-overflow-scrolling: touch;
@@ -255,7 +254,6 @@ html.is-scrolling .hero-orbit-wrap {
 }
 .svc-rail.is-drag {
   scroll-snap-type: none;
-  cursor: grabbing;
 }
 .svc-rail.is-drag .cards {
   will-change: transform;
